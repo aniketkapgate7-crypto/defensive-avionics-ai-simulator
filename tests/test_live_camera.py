@@ -590,5 +590,4 @@ def test_secondary_objects_do_not_change_primary_trend() -> None:
 
     assert est.trend in {"growing", "rapid_growth"}
     assert est.relative_growth > 0.03
-    processor.shutdown()
-
+    processor.shutdown()`n
