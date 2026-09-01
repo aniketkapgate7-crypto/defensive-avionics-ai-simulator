@@ -1,4 +1,7 @@
 # MULTI-MODAL DEFENSIVE AVIONICS AI SIMULATOR
+[![CI](https://github.com/aniketkapgate7-crypto/defensive-avionics-ai-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/aniketkapgate7-crypto/defensive-avionics-ai-simulator/actions/workflows/ci.yml)
+![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **SYNTHETIC CLASSROOM SIMULATION — NO REAL-WORLD TARGETING**
 
