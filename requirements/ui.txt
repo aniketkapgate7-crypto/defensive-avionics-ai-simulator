@@ -1,0 +1,4 @@
+pygame>=2.5,<3
+streamlit>=1.36,<2
+streamlit-webrtc>=0.77,<1
+av>=14,<18

@@ -1,0 +1,4 @@
+torch>=2.2,<3
+torchvision>=0.17,<1
+ultralytics>=8.2,<9
+opencv-python>=4.8,<5

@@ -1,0 +1,25 @@
+module: vision
+task: synthetic_object_detection
+
+data:
+  dataset_yaml: data/processed/vision/dataset.yaml
+  source_policy: synthetic_or_properly_licensed_only
+  minimum_images: 500
+
+model:
+  family: yolo
+  checkpoint: yolov8n.pt
+  image_size: 640
+
+training:
+  epochs: 50
+  batch_size: 8
+  patience: 10
+
+inference:
+  confidence_threshold: 0.50
+  iou_threshold: 0.45
+  urgency_window_frames: 8
+
+evaluation:
+  metrics: [precision, recall, map50, map50_95, fps]

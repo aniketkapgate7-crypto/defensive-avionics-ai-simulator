@@ -1,0 +1,26 @@
+module: policy
+task: abstract_decision_policy
+
+environment:
+  id: AbstractDefensiveScenario-v0
+  normalized_units_only: true
+  max_steps: 500
+  observation_size: 7
+  action_names:
+    - observe
+    - virtual_resource_a
+    - virtual_resource_b
+    - virtual_signal_response
+    - abstract_reposition
+
+training:
+  algorithm: PPO
+  total_timesteps: 100000
+  learning_rate: 0.0003
+  seed: 42
+  evaluation_frequency: 10000
+
+evaluation:
+  episodes: 100
+  compare_against: rule_based_baseline
+  metrics: [mean_episode_return, completion_rate, resource_efficiency]

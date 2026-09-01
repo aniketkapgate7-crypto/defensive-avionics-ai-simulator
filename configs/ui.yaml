@@ -1,0 +1,21 @@
+module: ui
+backend: pygame
+
+window:
+  width: 1440
+  height: 900
+  fps: 30
+  title: Multi-Modal AI Simulator
+
+theme:
+  background: [5, 12, 20]
+  primary: [30, 230, 190]
+  warning: [255, 185, 50]
+  critical: [255, 80, 80]
+  text: [225, 240, 245]
+
+panels:
+  signal: true
+  vision: true
+  policy: true
+  metrics: true

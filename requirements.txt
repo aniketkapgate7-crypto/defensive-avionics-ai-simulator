@@ -1,0 +1,3 @@
+# Lightweight shared environment. Install module extras from pyproject.toml
+# only when each development phase begins.
+-r requirements/base.txt

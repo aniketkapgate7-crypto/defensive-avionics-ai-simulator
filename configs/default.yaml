@@ -1,0 +1,15 @@
+project:
+  name: defensive-avionics-ai-simulator
+  seed: 42
+  device: auto
+  output_dir: outputs
+
+runtime:
+  deterministic_demo: true
+  log_level: INFO
+  offline_only: true
+
+integration:
+  update_hz: 10
+  stale_after_seconds: 2.0
+  minimum_confidence: 0.60

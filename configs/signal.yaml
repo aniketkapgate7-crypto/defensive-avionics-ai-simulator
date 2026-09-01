@@ -1,0 +1,32 @@
+module: signal
+task: communication_modulation_classification
+
+data:
+  dataset_name: RadioML-2016.10A
+  raw_path: data/raw/radioml/RML2016.10a_dict.pkl
+  processed_path: data/processed/signal
+  trusted_local_file_only: true
+  train_fraction: 0.70
+  validation_fraction: 0.15
+  test_fraction: 0.15
+
+input:
+  representation: raw_iq
+  channels: 2
+  sequence_length: 128
+
+model:
+  architecture: iq_1d_cnn
+  num_filters: [64, 128]
+  kernel_sizes: [7, 5]
+  dropout: 0.30
+
+training:
+  batch_size: 128
+  epochs: 30
+  learning_rate: 0.001
+  early_stopping_patience: 5
+
+evaluation:
+  metrics: [accuracy, macro_f1, confusion_matrix]
+  group_by_snr: true

@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments and secrets
+.venv/
+venv/
+.env
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datasets: keep only documentation and placeholders
+data/raw/**/*
+data/interim/*
+data/processed/*
+!data/raw/**/
+!data/raw/**/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# Model weights and large experiment artifacts
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.onnx
+models/**/*.zip
+models/**/*.keras
+models/**/*.h5
+outputs/figures/*
+outputs/logs/*
+outputs/reports/*
+outputs/videos/*
+!outputs/figures/.gitkeep
+!outputs/logs/.gitkeep
+!outputs/reports/.gitkeep
+!outputs/videos/.gitkeep
+
+# Local tooling
+*.log
+*.tmp
+
+# Additional local secrets
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Auto-downloaded YOLO model and training runs
+/yolov8n.pt
+runs/
+mlruns/
+wandb/
+
+# Python packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Generated YOLO training output
+outputs/vision/

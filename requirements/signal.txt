@@ -1,0 +1,3 @@
+torch>=2.2,<3
+h5py>=3.10,<4
+tensorboard>=2.15,<3

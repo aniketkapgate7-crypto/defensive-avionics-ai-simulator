@@ -1,0 +1,26 @@
+{
+  "algorithm": "PPO",
+  "scope": "abstract academic simulation",
+  "total_timesteps": 100000,
+  "max_episode_steps": 300,
+  "seed": 42,
+  "learning_rate": 0.0003,
+  "observation_names": [
+    "scenario_intensity",
+    "uncertainty",
+    "change_rate",
+    "signal_confidence",
+    "visual_urgency",
+    "resource_a",
+    "resource_b"
+  ],
+  "action_names": [
+    "observe",
+    "virtual_resource_a",
+    "virtual_resource_b",
+    "virtual_signal_response",
+    "abstract_reposition"
+  ],
+  "final_model": "ppo_policy_final.zip",
+  "best_model": "best_model.zip"
+}
