@@ -16,7 +16,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install project
-        run: python -m pip install -e ".[dev,vision,policy]"
+        run: python -m pip install -e ".[dev,analysis,vision,policy]"
 
       - name: Check structure
         run: python scripts/check_setup.py
