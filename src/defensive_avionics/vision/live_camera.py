@@ -32,6 +32,21 @@ CLASSROOM_SAFE_LABELS: tuple[str, ...] = (
     "backpack",
 )
 
+CLASS_COLORS: dict[str, tuple[int, int, int]] = {
+    "bottle": (255, 180, 0),       # Azure / Cyan-Blue (BGR)
+    "cell phone": (0, 215, 255),   # Amber / Gold (BGR)
+    "book": (200, 100, 255),       # Pink / Lavender (BGR)
+    "cup": (50, 220, 100),         # Spring Green (BGR)
+    "backpack": (0, 140, 255),     # Tangerine / Orange (BGR)
+}
+DEFAULT_CLASS_COLOR: tuple[int, int, int] = (0, 215, 255)
+
+
+def get_class_color(label: str) -> tuple[int, int, int]:
+    """Return a consistent BGR color for a given object class."""
+    return CLASS_COLORS.get(label.lower(), DEFAULT_CLASS_COLOR)
+
+
 CameraModelMode = Literal["classroom", "synthetic"]
 
 BANNER_TEXT = "LOCAL PROCESSING - NO RECORDING - NO PHYSICAL RANGE ESTIMATE"
@@ -101,11 +116,15 @@ class LiveCameraProcessor:
         stable_tolerance: float = 0.04,
         rapid_growth_threshold: float = 0.18,
         hysteresis_count: int = 2,
+        max_detections: int = 10,
     ) -> None:
+        if not (1 <= max_detections <= 20):
+            raise ValueError("max_detections must be between 1 and 20")
         self.model_mode = model_mode
         self.confidence = confidence
         self.image_size = image_size
         self.device = device
+        self.max_detections = max_detections
 
         self.tracker = ExpansionTracker(
             window_size=window_size,
@@ -167,6 +186,7 @@ class LiveCameraProcessor:
                 image_size=self.image_size,
                 device=self.device,
                 allowed_labels=allowed,
+                max_detections=self.max_detections,
             )
         except Exception as exc:
             print(f"Warning: Failed to load camera detector: {exc}")
@@ -308,6 +328,15 @@ class LiveCameraProcessor:
             if self.detector is not None:
                 self.detector.set_confidence(confidence)
 
+    def set_max_detections(self, max_detections: int) -> None:
+        """Update max detections dynamically."""
+        if not (1 <= max_detections <= 20):
+            raise ValueError("max_detections must be between 1 and 20")
+        with self._lock:
+            self.max_detections = max_detections
+            if self.detector is not None:
+                self.detector.set_max_detections(max_detections)
+
     def reset(self) -> None:
         """Reset internal tracking, associations, and state."""
         with self._lock:
@@ -430,7 +459,7 @@ class LiveCameraProcessor:
             )
 
     def _select_stable_object(self, detections: list[Detection]) -> Detection | None:
-        """Select and associate a stable object across successive video frames."""
+        """Select and associate a stable primary object across successive frames using IoU."""
         if not detections:
             self._missing_count += 1
             if self._missing_count >= 10:
@@ -450,12 +479,24 @@ class LiveCameraProcessor:
                 )
             return None
 
-        # When detections exist, match with existing track if possible
-        if self._tracked_box is not None and self._missing_count < 10:
+        # Determine target anchor box from smoothed coordinates or previous tracked box
+        target_box: tuple[int, int, int, int] | None = None
+        if self._smoothed_box is not None:
+            target_box = (
+                int(round(self._smoothed_box[0])),
+                int(round(self._smoothed_box[1])),
+                int(round(self._smoothed_box[2])),
+                int(round(self._smoothed_box[3])),
+            )
+        elif self._tracked_box is not None:
+            target_box = self._tracked_box
+
+        # When detections exist, match with existing track if possible using IoU
+        if target_box is not None and self._missing_count < 10:
             best_det: Detection | None = None
             best_iou = 0.0
             for det in detections:
-                iou = compute_box_iou(det.box, self._tracked_box)
+                iou = compute_box_iou(det.box, target_box)
                 if iou > best_iou:
                     best_iou = iou
                     best_det = det
@@ -477,7 +518,7 @@ class LiveCameraProcessor:
                     self._missing_count = 0
                     return largest
 
-        # Initial selection or genuine object switch
+        # Initial selection or genuine object switch: select largest detection
         largest = max(detections, key=lambda d: d.area_ratio)
         if self._tracked_label != largest.label:
             self.tracker.reset()
@@ -551,17 +592,63 @@ class LiveCameraProcessor:
             "rapid_growth": (0, 110, 255),  # Orange
         }
 
-        active_color = (128, 128, 128) if is_stale else trend_colors.get(
+        active_trend_color = (128, 128, 128) if is_stale else trend_colors.get(
             state.trend, (0, 215, 255)
         )
 
-        # 1. Draw secondary valid detection boxes
-        for det in all_dets:
-            if state.box and det.box != state.box:
-                dx1, dy1, dx2, dy2 = det.box
-                cv2.rectangle(annotated, (dx1, dy1), (dx2, dy2), (0, 180, 220), 1)
+        # Identify primary object in all_dets using IoU with smoothed primary box
+        primary_det_idx: int | None = None
+        if state.box is not None and all_dets and not is_stale:
+            best_iou = 0.0
+            best_idx: int | None = None
+            for idx, det in enumerate(all_dets):
+                iou = compute_box_iou(det.box, state.box)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_idx = idx
+            if best_idx is not None and best_iou > 0.05:
+                primary_det_idx = best_idx
 
-        # 2. Draw Primary Tracked Bounding Box
+        # 1. Draw every detection with 2-pixel box, class badge, and raw confidence
+        for idx, det in enumerate(all_dets):
+            # Primary object gets rendered with smoothed coordinates & primary styling below
+            if idx == primary_det_idx and state.box is not None and not is_stale:
+                continue
+
+            dx1, dy1, dx2, dy2 = det.box
+            dx1 = max(0, min(dx1, width - 1))
+            dy1 = max(0, min(dy1, height - 1))
+            dx2 = max(dx1 + 1, min(dx2, width))
+            dy2 = max(dy1 + 1, min(dy2, height))
+
+            color = (128, 128, 128) if is_stale else get_class_color(det.label)
+
+            # 2-pixel bounding box
+            cv2.rectangle(annotated, (dx1, dy1), (dx2, dy2), color, 2)
+
+            # Class name and raw confidence above box (e.g. BOOK 82.4%)
+            conf_str = f"{det.confidence * 100:.1f}%"
+            badge_text = f"{det.label.upper()} {conf_str}"
+            badge_w = max(80, len(badge_text) * 8 + 10)
+            cv2.rectangle(
+                annotated,
+                (dx1, max(0, dy1 - 18)),
+                (min(width, dx1 + badge_w), dy1),
+                (7, 18, 34),
+                -1,
+            )
+            cv2.putText(
+                annotated,
+                badge_text,
+                (dx1 + 3, max(13, dy1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.38,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
+
+        # 2. Draw Primary Tracked Bounding Box (Thicker trend-colored border & PRIMARY badge)
         if state.box is not None and not is_stale and state.confidence > 0.0:
             bx1, by1, bx2, by2 = state.box
             bx1 = max(0, min(bx1, width - 1))
@@ -569,12 +656,13 @@ class LiveCameraProcessor:
             bx2 = max(bx1 + 1, min(bx2, width))
             by2 = max(by1 + 1, min(by2, height))
 
-            cv2.rectangle(annotated, (bx1, by1), (bx2, by2), active_color, 2)
+            # Thicker trend-coloured border (3-pixel)
+            cv2.rectangle(annotated, (bx1, by1), (bx2, by2), active_trend_color, 3)
 
-            # Label & confidence badge above box
-            conf_str = f"{state.confidence * 100:.1f}%"
-            badge_text = f"{state.label.upper()} {conf_str}"
-            badge_w = max(110, len(badge_text) * 9 + 12)
+            # Primary label badge with PRIMARY tag and raw confidence
+            raw_conf_str = f"{state.raw_confidence * 100:.1f}%"
+            badge_text = f"PRIMARY \u25b6 {state.label.upper()} {raw_conf_str}"
+            badge_w = max(130, len(badge_text) * 8 + 14)
             cv2.rectangle(
                 annotated,
                 (bx1, max(0, by1 - 22)),
@@ -582,22 +670,43 @@ class LiveCameraProcessor:
                 (7, 18, 34),
                 -1,
             )
+            cv2.line(
+                annotated,
+                (bx1, max(0, by1 - 22)),
+                (min(width, bx1 + badge_w), max(0, by1 - 22)),
+                active_trend_color,
+                1,
+            )
             cv2.putText(
                 annotated,
                 badge_text,
                 (bx1 + 4, max(16, by1 - 6)),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.44,
-                active_color,
+                0.40,
+                active_trend_color,
                 1,
                 cv2.LINE_AA,
             )
+        elif is_stale and state.box is not None:
+            # Stale primary box in grey
+            bx1, by1, bx2, by2 = state.box
+            bx1 = max(0, min(bx1, width - 1))
+            by1 = max(0, min(by1, height - 1))
+            bx2 = max(bx1 + 1, min(bx2, width))
+            by2 = max(by1 + 1, min(by2, height))
+            cv2.rectangle(annotated, (bx1, by1), (bx2, by2), (128, 128, 128), 2)
 
         # 3. Top-Left HUD Telemetry Card
         trend_disp = "STALE RESULT" if is_stale else state.trend.replace("_", " ").upper()
+        det_count_disp = (
+            f"{state.detection_count} OBJECTS"
+            if state.detection_count > 0
+            else "NO OBJECTS DETECTED"
+        )
         hud_lines = [
-            "LIVE CAMERA // CLASSROOM OBJECTS",
-            f"OBJECT: {state.label.upper()}",
+            "LIVE CAMERA // MULTI-OBJECT DEFENSE",
+            f"PRIMARY OBJECT: {state.label.upper()}",
+            f"DETECTED OBJECTS: {det_count_disp}",
             (
                 f"CONFIDENCE: {state.confidence * 100:.1f}%"
                 if state.confidence > 0
@@ -610,7 +719,7 @@ class LiveCameraProcessor:
         ]
 
         card_h = 16 + len(hud_lines) * 16
-        card_w = 265
+        card_w = 275
         overlay_bg = annotated.copy()
         cv2.rectangle(overlay_bg, (10, 10), (10 + card_w, 10 + card_h), (5, 11, 20), -1)
         cv2.addWeighted(overlay_bg, 0.78, annotated, 0.22, 0, annotated)
@@ -619,7 +728,7 @@ class LiveCameraProcessor:
         for idx, line in enumerate(hud_lines):
             line_color = (0, 240, 255) if idx == 0 else (224, 242, 254)
             if "TREND:" in line:
-                line_color = active_color
+                line_color = active_trend_color
             cv2.putText(
                 annotated,
                 line,

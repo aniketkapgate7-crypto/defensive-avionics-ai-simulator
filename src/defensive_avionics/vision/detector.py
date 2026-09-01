@@ -32,6 +32,7 @@ class GenericSkyDetector:
         image_size: int = 320,
         device: str = "cpu",
         allowed_labels: tuple[str, ...] = DEFAULT_SKY_LABELS,
+        max_detections: int = 10,
     ) -> None:
         if not 0.0 < confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
@@ -39,11 +40,15 @@ class GenericSkyDetector:
         if image_size <= 0:
             raise ValueError("image_size must be positive")
 
+        if not (1 <= max_detections <= 20):
+            raise ValueError("max_detections must be between 1 and 20")
+
         self.model = YOLO(str(model_path))
         self.confidence = confidence
         self.image_size = image_size
         self.device = device
         self.allowed_labels = set(allowed_labels)
+        self.max_detections = max_detections
         self.allowed_class_ids: list[int] | None = None
 
         self._resolve_class_ids()
@@ -69,6 +74,12 @@ class GenericSkyDetector:
         if 0.0 < confidence <= 1.0:
             self.confidence = confidence
 
+    def set_max_detections(self, max_detections: int) -> None:
+        """Update max detections dynamically."""
+        if not (1 <= max_detections <= 20):
+            raise ValueError("max_detections must be between 1 and 20")
+        self.max_detections = max_detections
+
     def set_allowed_labels(self, allowed_labels: tuple[str, ...]) -> None:
         """Update allowed labels and re-resolve class IDs."""
         self.allowed_labels = set(allowed_labels)
@@ -88,7 +99,7 @@ class GenericSkyDetector:
             imgsz=self.image_size,
             device=self.device,
             classes=self.allowed_class_ids,
-            max_det=10,
+            max_det=self.max_detections,
             augment=False,
             verbose=False,
         )

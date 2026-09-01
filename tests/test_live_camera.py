@@ -403,3 +403,192 @@ def test_classroom_safe_labels() -> None:
     assert "backpack" in CLASSROOM_SAFE_LABELS
     assert "person" not in CLASSROOM_SAFE_LABELS
     assert "face" not in CLASSROOM_SAFE_LABELS
+
+
+def test_max_detections_validation() -> None:
+    """Verify max_detections parameter range validation (1-20)."""
+    with pytest.raises(ValueError, match="max_detections must be between 1 and 20"):
+        GenericSkyDetector(model_path="yolov8n.pt", max_detections=0)
+
+    with pytest.raises(ValueError, match="max_detections must be between 1 and 20"):
+        GenericSkyDetector(model_path="yolov8n.pt", max_detections=21)
+
+    det = GenericSkyDetector(model_path="yolov8n.pt", max_detections=10)
+    assert det.max_detections == 10
+
+    det.set_max_detections(15)
+    assert det.max_detections == 15
+
+    with pytest.raises(ValueError, match="max_detections must be between 1 and 20"):
+        det.set_max_detections(25)
+
+    with pytest.raises(ValueError, match="max_detections must be between 1 and 20"):
+        LiveCameraProcessor(max_detections=0)
+
+    with pytest.raises(ValueError, match="max_detections must be between 1 and 20"):
+        LiveCameraProcessor(max_detections=22)
+
+    proc = LiveCameraProcessor(max_detections=8)
+    assert proc.max_detections == 8
+    proc.set_max_detections(12)
+    assert proc.max_detections == 12
+    proc.shutdown()
+
+
+def test_mock_three_simultaneous_detections_rendered(dummy_bgr_frame: np.ndarray) -> None:
+    """Mock three simultaneous detections without loading a real model and verify rendering."""
+    processor = LiveCameraProcessor(model_mode="classroom", image_size=320)
+
+    det1 = Detection(
+        label="bottle", confidence=0.824, box=(40, 40, 120, 180), area_ratio=0.03
+    )
+    det2 = Detection(
+        label="cell phone", confidence=0.712, box=(200, 150, 280, 260), area_ratio=0.03
+    )
+    det3 = Detection(
+        label="book", confidence=0.915, box=(320, 100, 480, 320), area_ratio=0.10
+    )
+
+    dets = [det1, det2, det3]
+    primary = processor._select_stable_object(dets)
+    assert primary is not None
+    assert primary.label == "book"  # Largest area selected as primary initially
+
+    now = time.time()
+    with processor._lock:
+        processor._state = LiveCameraState(
+            seq=1,
+            label="book",
+            raw_confidence=0.915,
+            confidence=0.915,
+            area_ratio=0.10,
+            trend="stable",
+            fps=15.0,
+            inference_ms=18.0,
+            detection_count=len(dets),
+            is_active=True,
+            is_stale=False,
+            box=(320, 100, 480, 320),
+            all_detections=tuple(dets),
+            inference_timestamp=now,
+        )
+
+    annotated = processor.process_frame(dummy_bgr_frame)
+    assert annotated is not None
+    assert annotated.shape == dummy_bgr_frame.shape
+
+    st = processor.get_state()
+    assert st.detection_count == 3
+    assert len(st.all_detections) == 3
+    assert {d.label for d in st.all_detections} == {"bottle", "cell phone", "book"}
+    processor.shutdown()
+
+
+def test_multiple_objects_of_same_class_retained() -> None:
+    """Verify multiple detections of the same class (e.g. 2 bottles, 1 book) are retained."""
+    processor = LiveCameraProcessor(model_mode="classroom", image_size=320)
+
+    det1 = Detection(label="bottle", confidence=0.85, box=(50, 50, 120, 180), area_ratio=0.02)
+    det2 = Detection(label="bottle", confidence=0.78, box=(160, 50, 230, 180), area_ratio=0.02)
+    det3 = Detection(label="book", confidence=0.92, box=(280, 100, 440, 300), area_ratio=0.08)
+
+    dets = [det1, det2, det3]
+    primary = processor._select_stable_object(dets)
+    assert primary is not None
+    assert primary.label == "book"
+
+    # All detections must be preserved in state
+    now = time.time()
+    with processor._lock:
+        processor._state = LiveCameraState(
+            seq=1,
+            label=primary.label,
+            raw_confidence=primary.confidence,
+            confidence=primary.confidence,
+            area_ratio=primary.area_ratio,
+            detection_count=len(dets),
+            is_active=True,
+            is_stale=False,
+            box=primary.box,
+            all_detections=tuple(dets),
+            inference_timestamp=now,
+        )
+
+    state = processor.get_state()
+    assert state.detection_count == 3
+    bottle_count = sum(1 for d in state.all_detections if d.label == "bottle")
+    assert bottle_count == 2
+    processor.shutdown()
+
+
+def test_primary_object_selected_using_iou() -> None:
+    """Verify primary object track is preserved across frames using IoU rather than largest area."""
+    processor = LiveCameraProcessor(model_mode="classroom", image_size=320)
+
+    # Frame 1: Book is selected
+    det_book_f1 = Detection(
+        label="book", confidence=0.90, box=(100, 100, 200, 200), area_ratio=0.05
+    )
+    sel1 = processor._select_stable_object([det_book_f1])
+    assert sel1 is not None
+    assert sel1.label == "book"
+    assert processor._tracked_label == "book"
+
+    # Frame 2: A new massive bottle appears, and book slightly shifts
+    det_massive_bottle = Detection(
+        label="bottle", confidence=0.98, box=(350, 50, 600, 450), area_ratio=0.30
+    )
+    det_book_f2 = Detection(
+        label="book", confidence=0.89, box=(105, 102, 208, 204), area_ratio=0.05
+    )
+
+    # Even though bottle is 6x larger, IoU matching keeps book as primary
+    sel2 = processor._select_stable_object([det_massive_bottle, det_book_f2])
+    assert sel2 is not None
+    assert sel2.label == "book"
+    assert sel2.box == det_book_f2.box
+    processor.shutdown()
+
+
+def test_secondary_objects_do_not_change_primary_trend() -> None:
+    """Verify expansion tracking consumes only the primary object, isolating secondary noise."""
+    processor = LiveCameraProcessor(model_mode="classroom", image_size=320)
+
+    # First establish primary tracking on book
+    initial_primary = Detection(
+        label="book", confidence=0.90, box=(100, 100, 200, 200), area_ratio=0.03
+    )
+    init_sel = processor._select_stable_object([initial_primary])
+    assert init_sel is not None
+    assert init_sel.label == "book"
+
+    # Smoothly expanding primary book while erratic secondary bottle appears
+    areas = [0.03, 0.04, 0.055, 0.07, 0.09, 0.11, 0.14, 0.17]
+    for idx, area in enumerate(areas):
+        w = int(round(100 * (1.0 + idx * 0.15)))
+        h = int(round(100 * (1.0 + idx * 0.15)))
+        primary_det = Detection(
+            label="book",
+            confidence=0.90,
+            box=(100, 100, 100 + w, 100 + h),
+            area_ratio=area,
+        )
+        # Random jumping secondary bottle
+        secondary_det = Detection(
+            label="bottle",
+            confidence=0.70,
+            box=(400, 200, 450, 300),
+            area_ratio=(0.20 if idx % 2 == 0 else 0.01),
+        )
+
+        selected = processor._select_stable_object([primary_det, secondary_det])
+        assert selected is not None
+        assert selected.label == "book"
+
+        # Update tracker solely with primary object's area ratio
+        est = processor.tracker.update(selected.area_ratio, timestamp=100.0 + idx * 0.2)
+
+    assert est.trend in {"growing", "rapid_growth"}
+    assert est.relative_growth > 0.03
+    processor.shutdown()
+

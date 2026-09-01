@@ -195,6 +195,7 @@ def get_camera_processor() -> LiveCameraProcessor:
         confidence=0.20,
         image_size=320,
         device="cpu",
+        max_detections=8,
     )
 
 
@@ -213,6 +214,8 @@ def initialize_session_state() -> None:
         st.session_state.camera_model_mode = "Classroom Objects"
     if "cam_confidence_threshold" not in st.session_state:
         st.session_state.cam_confidence_threshold = 0.20
+    if "cam_max_detections" not in st.session_state:
+        st.session_state.cam_max_detections = 8
     if "orchestrator" not in st.session_state:
         st.session_state.orchestrator = get_orchestrator(st.session_state.seed)
     if "latest_snapshot" not in st.session_state:
@@ -614,7 +617,7 @@ with row1_col3:
 
     else:
         # Live WebRTC Camera Mode
-        cam_c1, cam_c2 = st.columns([1.1, 1.0])
+        cam_c1, cam_c2, cam_c3 = st.columns([1.1, 1.0, 1.0])
         with cam_c1:
             cam_model_choice = st.selectbox(
                 "Detection Target Class",
@@ -642,11 +645,26 @@ with row1_col3:
                 max_value=0.60,
                 value=float(st.session_state.cam_confidence_threshold),
                 step=0.05,
+                key="cam_conf_slider",
                 label_visibility="collapsed",
             )
             if conf_slider != st.session_state.cam_confidence_threshold:
                 st.session_state.cam_confidence_threshold = conf_slider
                 camera_processor.set_confidence(conf_slider)
+
+        with cam_c3:
+            max_det_slider = st.slider(
+                "Max Objects",
+                min_value=1,
+                max_value=10,
+                value=int(st.session_state.cam_max_detections),
+                step=1,
+                key="cam_max_det_slider",
+                label_visibility="collapsed",
+            )
+            if max_det_slider != st.session_state.cam_max_detections:
+                st.session_state.cam_max_detections = max_det_slider
+                camera_processor.set_max_detections(max_det_slider)
 
         webrtc_ctx = webrtc_streamer(
             key="defensive-avionics-live-camera",
@@ -695,6 +713,21 @@ with row1_col3:
                 else "--"
             )
 
+            if cam_state.all_detections:
+                obj_items = [
+                    f"<span style='display:inline-block; margin:2px 3px; padding:2px 6px; "
+                    f"background:#071E33; border:1px solid #0B526D; border-radius:3px; "
+                    f"font-size:0.70rem; color:#E0F2FE; font-family:Consolas,monospace;'>"
+                    f"● {d.label.upper()}: <strong>{d.confidence * 100:.1f}%</strong></span>"
+                    for d in cam_state.all_detections
+                ]
+                obj_list_html = "".join(obj_items)
+            else:
+                obj_list_html = (
+                    "<span style='color:#91A8B8; font-size:0.72rem; font-style:italic;'>"
+                    "NO OBJECTS DETECTED</span>"
+                )
+
             live_telemetry_html = f"""
             <div style="background:#040E1A; border:1px solid #0B526D; border-radius:4px;
             padding:8px 12px; margin-top:8px;">
@@ -706,10 +739,23 @@ with row1_col3:
                     </span>
                 </div>
                 <div class="hud-metric-row">
-                    <span class="hud-metric-label">PRIMARY TARGET:</span>
+                    <span class="hud-metric-label">PRIMARY OBJECT:</span>
                     <span class="hud-metric-value" style="color:#00E5FF; font-weight:bold;">
                         {cam_state.label.upper()}
                     </span>
+                </div>
+                <div class="hud-metric-row">
+                    <span class="hud-metric-label">DETECTED OBJECTS:</span>
+                    <span class="hud-metric-value" style="color:#2EE6A6; font-weight:bold;">
+                        {cam_state.detection_count}
+                    </span>
+                </div>
+                <div class="hud-metric-row" style="align-items:flex-start; margin-top:4px;">
+                    <span class="hud-metric-label" style="margin-top:3px;">ALL OBJECTS:</span>
+                    <div style="display:flex; flex-wrap:wrap; justify-content:flex-end;
+                    max-width:65%;">
+                        {obj_list_html}
+                    </div>
                 </div>
                 <div class="hud-metric-row">
                     <span class="hud-metric-label">CONFIDENCE (EMA):</span>
