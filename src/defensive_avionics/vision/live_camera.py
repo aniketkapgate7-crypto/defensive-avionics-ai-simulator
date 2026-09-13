@@ -661,7 +661,7 @@ class LiveCameraProcessor:
 
             # Primary label badge with PRIMARY tag and raw confidence
             raw_conf_str = f"{state.raw_confidence * 100:.1f}%"
-            badge_text = f"PRIMARY \u25b6 {state.label.upper()} {raw_conf_str}"
+            badge_text = f"PRIMARY | {state.label.upper()} {raw_conf_str}"
             badge_w = max(130, len(badge_text) * 8 + 14)
             cv2.rectangle(
                 annotated,
